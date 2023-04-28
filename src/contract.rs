@@ -1,7 +1,7 @@
 use crate::error::ContractError;
 use crate::msg::{CurrentInfoResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{BetInfo, CurrentBetDetail, Info};
-use crate::state::{BETINFO, CURRENTBET, DOWN, INFO, OWNER, UP};
+use crate::state::{BETINFO, CLAIMED, CURRENTBET, DOWN, INFO, OWNER, UP};
 use std::default;
 use std::time::Duration;
 
@@ -84,6 +84,9 @@ pub fn execute_start_bet(
         startPrice: price,
     };
 
+    CURRENTBET.save(deps.storage, &bet_detail)?;
+    INFO.save(deps.storage, &info);
+
     Ok(Response::new()
         .add_attribute("action", "execute_start_bet")
         .add_attribute("start_price", price))
@@ -104,9 +107,12 @@ pub fn execute_end_bet(
     if info.status != 1 {
         return Err(ContractError::NotOpeningID {});
     }
+    if Uint64::from(_env.block.time.seconds()) < current_bet_detail.endTime {
+        return Err(ContractError::BetIDNotEnd {});
+    }
 
     let temp_id = info.id.into();
-    let prize = (current_bet_detail.totalUp + current_bet_detail.totalDown) * Uint128::from(90u128)
+    let prize = (current_bet_detail.totalUp + current_bet_detail.totalDown) * Uint128::from(99u128)
         / Uint128::from(100u128);
     let fee = current_bet_detail.totalUp + current_bet_detail.totalDown - prize;
 
@@ -125,6 +131,9 @@ pub fn execute_end_bet(
         status: 0,
     };
     INFO.save(deps.storage, &info)?;
+
+    let current_bet: CurrentBetDetail = CurrentBetDetail::default();
+    CURRENTBET.save(deps.storage, &current_bet)?;
 
     BankMsg::Send {
         to_address: owner.to_string(),
@@ -145,21 +154,23 @@ pub fn execute_up_bet(
     let info = INFO.load(deps.storage)?;
     let mut current_bet = CURRENTBET.load(deps.storage)?;
 
-    if info.id != 1 {
+    if info.status != 1 {
         return Err(ContractError::CannotBet {});
     }
-
-    let denom = String::from("down bet");
+    if Uint64::from(_env.block.time.seconds()) > current_bet.endTime {
+        return Err(ContractError::BetIDEnd {});
+    }
+    let denom = String::from("inj");
     let funds = _info
         .funds
         .iter()
         .find(|coin| coin.denom.eq(&denom))
         .unwrap();
+    current_bet.totalUp += funds.amount;
 
-    current_bet.totalDown += funds.amount;
-    if funds.amount < Uint128::from(100000000000000000u128) {
-        return Err(ContractError::SmallBet {});
-    }
+    // if funds.amount < Uint128::from(100000000000000000u128) {
+    //     return Err(ContractError::SmallBet {});
+    // }
 
     CURRENTBET.save(deps.storage, &current_bet)?;
 
@@ -188,18 +199,22 @@ pub fn execute_down_bet(
     let info = INFO.load(deps.storage)?;
     let mut current_bet = CURRENTBET.load(deps.storage)?;
 
-    if info.id != 1 {
+    if info.status != 1 {
         return Err(ContractError::CannotBet {});
     }
 
-    let denom = String::from("down bet");
+    if Uint64::from(_env.block.time.seconds()) > current_bet.endTime {
+        return Err(ContractError::BetIDEnd {});
+    }
+
+    let denom = String::from("inj");
     let funds = _info
         .funds
         .iter()
         .find(|coin| coin.denom.eq(&denom))
         .unwrap();
+    current_bet.totalDown += funds.amount;
 
-    current_bet.totalUp += funds.amount;
     if funds.amount < Uint128::from(100000000000000000u128) {
         return Err(ContractError::SmallBet {});
     }
@@ -230,6 +245,14 @@ pub fn execute_claim(
 ) -> Result<Response, ContractError> {
     let sender = _info.sender;
     let mut reward = Uint128::from(0u128);
+
+    if CLAIMED.may_load(deps.storage, (&sender, bet_id))?.is_some() {
+        let claimed = CLAIMED.load(deps.storage, (&sender, bet_id))?;
+        if claimed {
+            return Err(ContractError::Claimed {});
+        }
+    }
+
     if BETINFO.may_load(deps.storage, bet_id)?.is_some() {
         let bet_info = BETINFO.load(deps.storage, bet_id)?;
         if bet_info.startPrice < bet_info.endPrice {
@@ -254,6 +277,8 @@ pub fn execute_claim(
             }
         } else {
         }
+
+        CLAIMED.save(deps.storage, (&sender, bet_id), &true)?;
     }
 
     Ok(Response::new()
@@ -294,6 +319,7 @@ pub fn query_current_info(deps: Deps, addr: Addr) -> StdResult<Binary> {
         upPosition: upPosition,
         downPosition: downPosition,
     };
+
     to_binary(&resp)
 }
 
@@ -310,13 +336,15 @@ pub fn query_user_reward(deps: Deps, addr: Addr, bet_id: u64) -> StdResult<Binar
     let mut resp = Uint128::from(0u128);
     if BETINFO.may_load(deps.storage, bet_id)?.is_some() {
         let bet_info = BETINFO.load(deps.storage, bet_id)?;
-        if bet_info.startPrice < bet_info.endPrice {
+        if bet_info.startPrice <= bet_info.endPrice {
             if UP.may_load(deps.storage, (&addr, bet_id))?.is_some() {
-                resp = UP.load(deps.storage, (&addr, bet_id))?;
+                resp =
+                    UP.load(deps.storage, (&addr, bet_id))? * bet_info.totalPrize / bet_info.upBet;
             }
         } else if bet_info.startPrice > bet_info.endPrice {
             if DOWN.may_load(deps.storage, (&addr, bet_id))?.is_some() {
-                resp = DOWN.load(deps.storage, (&addr, bet_id))?;
+                resp = DOWN.load(deps.storage, (&addr, bet_id))? * bet_info.totalPrize
+                    / bet_info.downBet;
             }
         }
     }

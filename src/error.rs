@@ -18,6 +18,15 @@ pub enum ContractError {
     #[error("Only bet with more than 0.1 INJ")]
     SmallBet {},
 
-    #[error("Bet id not open yet")]
+    #[error("Bet ID not open yet")]
     CannotBet {},
+
+    #[error("Bet ID doesn't end")]
+    BetIDNotEnd {},
+
+    #[error("Bet id ended")]
+    BetIDEnd {},
+
+    #[error("Reward Claimed")]
+    Claimed {},    
 }

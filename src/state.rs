@@ -37,8 +37,9 @@ pub struct CurrentBetDetail {
 }
 
 pub const OWNER: Item<Addr> = Item::new("Owner");
-pub const INFO: Item<Info> = Item::new("Info");
-pub const CURRENTBET: Item<CurrentBetDetail> = Item::new("currentbet");
+pub const INFO: Item<Info> = Item::new("info");
+pub const CURRENTBET: Item<CurrentBetDetail> = Item::new("currentBet");
 pub const BETINFO: Map<u64, BetInfo> = Map::new("betinfo");
 pub const UP: Map<(&Addr, u64), Uint128> = Map::new("up");
 pub const DOWN: Map<(&Addr, u64), Uint128> = Map::new("down");
+pub const CLAIMED: Map<(&Addr, u64), bool> = Map::new("isClaimed");
