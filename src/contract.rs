@@ -8,8 +8,8 @@ use std::time::Duration;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    coins, to_binary, Addr, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response,
-    StdError, StdResult, Timestamp, Uint128, Uint64,
+    coins, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo,
+    Response, StdError, StdResult, SubMsg, Timestamp, Uint128, Uint64,
 };
 use cw_storage_plus::{Item, Map};
 
@@ -135,14 +135,16 @@ pub fn execute_end_bet(
     let current_bet: CurrentBetDetail = CurrentBetDetail::default();
     CURRENTBET.save(deps.storage, &current_bet)?;
 
-    BankMsg::Send {
+    let get_fee_message = BankMsg::Send {
         to_address: owner.to_string(),
-        amount: coins(fee.u128(), String::from("Take fee")),
+        amount: coins(fee.u128(), String::from("inj")),
     };
 
     Ok(Response::new()
+        .add_message(get_fee_message)
         .add_attribute("action", "execute_end_bet")
-        .add_attribute("end_price", price))
+        .add_attribute("end_price", price)
+        .add_attribute("fee", fee))
 }
 
 pub fn execute_up_bet(
@@ -168,9 +170,9 @@ pub fn execute_up_bet(
         .unwrap();
     current_bet.totalUp += funds.amount;
 
-    // if funds.amount < Uint128::from(100000000000000000u128) {
-    //     return Err(ContractError::SmallBet {});
-    // }
+    if funds.amount < Uint128::from(100000000000000000u128) {
+        return Err(ContractError::SmallBet {});
+    }
 
     CURRENTBET.save(deps.storage, &current_bet)?;
 
@@ -233,7 +235,7 @@ pub fn execute_down_bet(
         DOWN.save(deps.storage, (&sender, info.id), &funds.amount)?;
     }
     Ok(Response::new()
-        .add_attribute("action", "up_bet")
+        .add_attribute("action", "down_bet")
         .add_attribute("value", funds.amount))
 }
 
@@ -245,6 +247,10 @@ pub fn execute_claim(
 ) -> Result<Response, ContractError> {
     let sender = _info.sender;
     let mut reward = Uint128::from(0u128);
+    let mut claim_msg = BankMsg::Send {
+        to_address: sender.to_string(),
+        amount: coins(reward.u128(), String::from("inj")),
+    };
 
     if CLAIMED.may_load(deps.storage, (&sender, bet_id))?.is_some() {
         let claimed = CLAIMED.load(deps.storage, (&sender, bet_id))?;
@@ -255,24 +261,26 @@ pub fn execute_claim(
 
     if BETINFO.may_load(deps.storage, bet_id)?.is_some() {
         let bet_info = BETINFO.load(deps.storage, bet_id)?;
-        if bet_info.startPrice < bet_info.endPrice {
+        if bet_info.startPrice <= bet_info.endPrice {
             if UP.may_load(deps.storage, (&sender, bet_id))?.is_some() {
-                reward = UP.load(deps.storage, (&sender, bet_id))? * bet_info.totalPrize
-                    / bet_info.upBet;
+                reward = bet_info.totalPrize * Uint128::from(1000000u128) / bet_info.upBet
+                    * UP.load(deps.storage, (&sender, bet_id))?
+                    / Uint128::from(1000000u128);
 
-                BankMsg::Send {
+                claim_msg = BankMsg::Send {
                     to_address: sender.to_string(),
-                    amount: coins(reward.u128(), String::from("Claim reward")),
+                    amount: coins(reward.u128(), String::from("inj")),
                 };
             }
         } else if bet_info.startPrice > bet_info.endPrice {
             if DOWN.may_load(deps.storage, (&sender, bet_id))?.is_some() {
-                reward = DOWN.load(deps.storage, (&sender, bet_id))? * bet_info.totalPrize
-                    / bet_info.downBet;
+                reward = bet_info.totalPrize * Uint128::from(1000000u128) / bet_info.downBet
+                    * DOWN.load(deps.storage, (&sender, bet_id))?
+                    / Uint128::from(1000000u128);
 
-                BankMsg::Send {
+                claim_msg = BankMsg::Send {
                     to_address: sender.to_string(),
-                    amount: coins(reward.u128(), String::from("Claim reward")),
+                    amount: coins(reward.u128(), String::from("inj")),
                 };
             }
         } else {
@@ -282,6 +290,7 @@ pub fn execute_claim(
     }
 
     Ok(Response::new()
+        .add_message(claim_msg)
         .add_attribute("action", "claim")
         .add_attribute("value", reward)
         .add_attribute("addr", sender)
@@ -306,7 +315,7 @@ pub fn query_current_info(deps: Deps, addr: Addr) -> StdResult<Binary> {
         upPosition = UP.load(deps.storage, (&addr, info.id))?;
     }
     if DOWN.may_load(deps.storage, (&addr, info.id))?.is_some() {
-        upPosition = DOWN.load(deps.storage, (&addr, info.id))?;
+        downPosition = DOWN.load(deps.storage, (&addr, info.id))?;
     }
     let resp = CurrentInfoResponse {
         id: info.id,
@@ -334,17 +343,26 @@ pub fn query_bet_info(deps: Deps, bet_id: u64) -> StdResult<Binary> {
 
 pub fn query_user_reward(deps: Deps, addr: Addr, bet_id: u64) -> StdResult<Binary> {
     let mut resp = Uint128::from(0u128);
+    if CLAIMED.may_load(deps.storage, (&addr, bet_id))?.is_some() {
+        let claimed = CLAIMED.load(deps.storage, (&addr, bet_id))?;
+        if claimed {
+            return to_binary(&resp);
+        }
+    }
+
     if BETINFO.may_load(deps.storage, bet_id)?.is_some() {
         let bet_info = BETINFO.load(deps.storage, bet_id)?;
         if bet_info.startPrice <= bet_info.endPrice {
             if UP.may_load(deps.storage, (&addr, bet_id))?.is_some() {
-                resp =
-                    UP.load(deps.storage, (&addr, bet_id))? * bet_info.totalPrize / bet_info.upBet;
+                resp = bet_info.totalPrize * Uint128::from(1000000u128) / bet_info.upBet
+                    * UP.load(deps.storage, (&addr, bet_id))?
+                    / Uint128::from(1000000u128);
             }
         } else if bet_info.startPrice > bet_info.endPrice {
             if DOWN.may_load(deps.storage, (&addr, bet_id))?.is_some() {
-                resp = DOWN.load(deps.storage, (&addr, bet_id))? * bet_info.totalPrize
-                    / bet_info.downBet;
+                resp = bet_info.totalPrize * Uint128::from(1000000u128) / bet_info.downBet
+                    * DOWN.load(deps.storage, (&addr, bet_id))?
+                    / Uint128::from(1000000u128);
             }
         }
     }

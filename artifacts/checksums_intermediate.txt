@@ -1,1 +1,1 @@
-596331297613a12b67de174f047822b40a98782630ae24d409830de7af0ed5ab  ./target/wasm32-unknown-unknown/release/smart_contract.wasm
+9a7f5e99ba067bf1c171190dde6fd10dce72e3617372e2425b90996105d0c8f1  ./target/wasm32-unknown-unknown/release/smart_contract.wasm

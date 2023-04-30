@@ -36,6 +36,11 @@ pub struct CurrentBetDetail {
     pub startPrice: Uint128,
 }
 
+pub struct BetKey {
+    addr: Addr,
+    id: u64,
+}
+
 pub const OWNER: Item<Addr> = Item::new("Owner");
 pub const INFO: Item<Info> = Item::new("info");
 pub const CURRENTBET: Item<CurrentBetDetail> = Item::new("currentBet");
