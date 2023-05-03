@@ -27,6 +27,9 @@ pub enum QueryMsg {
 
     #[returns(Uint128)]
     UserReward { addr: Addr, bet_id: u64 },
+
+    #[returns(Uint64)]
+    TimeStampInfo {},
 }
 
 #[cw_serde]

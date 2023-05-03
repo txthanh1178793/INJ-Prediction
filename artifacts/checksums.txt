@@ -1,1 +1,1 @@
-1791c463514e322acdfa77dc5e774c3f030f2b30ff04493d68d6552ca9e1874b  smart_contract.wasm
+4d995744908344e50cb4077fc258d8dbbbc3e1c1bbdf8e4dd2c0fb0bb6820c7c  smart_contract.wasm

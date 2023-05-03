@@ -114,7 +114,10 @@ pub fn execute_end_bet(
     let temp_id = info.id.into();
     let prize = (current_bet_detail.totalUp + current_bet_detail.totalDown) * Uint128::from(99u128)
         / Uint128::from(100u128);
-    let fee = current_bet_detail.totalUp + current_bet_detail.totalDown - prize;
+    let mut fee = current_bet_detail.totalUp + current_bet_detail.totalDown - prize;
+    if fee == Uint128::from(0u128) {
+        fee = Uint128::from(1u128);
+    }
 
     let bet_info = BetInfo {
         upBet: current_bet_detail.totalUp,
@@ -303,6 +306,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::CurrentInfo { addr } => query_current_info(deps, addr),
         QueryMsg::BetInfo { bet_id } => query_bet_info(deps, bet_id),
         QueryMsg::UserReward { addr, bet_id } => query_user_reward(deps, addr, bet_id),
+        QueryMsg::TimeStampInfo {} => query_time_stamp(_env),
     }
 }
 
@@ -366,5 +370,10 @@ pub fn query_user_reward(deps: Deps, addr: Addr, bet_id: u64) -> StdResult<Binar
             }
         }
     }
+    to_binary(&resp)
+}
+
+pub fn query_time_stamp(_env: Env) -> StdResult<Binary> {
+    let resp = Uint64::from(_env.block.time.seconds());
     to_binary(&resp)
 }
